@@ -36,7 +36,7 @@ contract GnosisSafe {
         external
         returns (bool success)
     {
-        bytes memory txData = abi.encodePacked(data, nonce);
+        bytes memory txData = abi.encodePacked(data, nonce); // TODO: abi.encodePacked(value, data, nonce)
         bytes32 txDataHash = keccak256(txData);
         address owner = recover(txDataHash, signatures);
         require(isOwner[owner]);
