@@ -9,15 +9,24 @@ import "./Libraries/VeriSolContracts.sol";
 
 contract GnosisSafe {
     uint256 nonce;
+    mapping (address => bool) public isOwner;
+
+    // to simulate transfer
     uint256 balance;
 
-    constructor() public {
+    constructor(
+        bytes32 txDataHash, uint256 signatures // to simulate ecrecover
+    )
+        public
+    {
         nonce = 0;
         balance = 100;
+        isOwner[msg.sender] = true;
+        // to simulate ecrecover
+        recoverMap[keccak256(abi.encodePacked(txDataHash, signatures))] = msg.sender;
     }
 
     function execTransaction(
-        uint256 _nonce,
         SignatureChecker checker,
         Executor executor,
         uint256 signatures,
@@ -27,49 +36,77 @@ contract GnosisSafe {
         external
         returns (bool success)
     {
-        require(nonce == _nonce);
+        bytes memory txData = abi.encodePacked(data, nonce);
+        bytes32 txDataHash = keccak256(txData);
+        address owner = recover(txDataHash, signatures);
+        require(isOwner[owner]);
 
         nonce++;
 
-        checker.checkSignatures(_nonce, signatures);
+        checker.checkSignatures(this, executor, signatures);
 
         require(balance >= value);
         balance -= value;
-        success = executor.execute(_nonce, data);
+
+        success = executor.execute(this, checker, data);
 
         assert(balance == VeriSol.Old(balance) - value);
     }
+
+    // to simulate ecrecover
+
+    mapping (bytes32 => address) public recoverMap;
+    /* FIXME: nested mappings are not properly initialized
+    mapping (bytes32 => mapping (uint256 => address)) public recoverMap;
+    */
+
+    function recover(bytes32 txDataHash, uint256 signatures)
+        internal
+        returns (address owner)
+    {
+        owner = recoverMap[keccak256(abi.encodePacked(txDataHash, signatures))];
+        /*
+        owner = recoverMap[txDataHash][signatures];
+        */
+    }
+
 }
 
+// to model attack vectors
+
 contract SignatureChecker {
-    GnosisSafe gnosis;
-    Executor executor;
+    // these storage values are unknown but fixed
     uint256 value;
     uint256 data;
     uint256 count;
-    function checkSignatures(uint256 nonce, uint256 signatures)
+    function checkSignatures(
+        GnosisSafe gnosis, Executor executor, // to avoid multiple instances
+        uint256 signatures
+    )
         public
     {
         if (count < 3) {
             count++;
-            gnosis.execTransaction(nonce, this, executor, signatures, value, data);
+            gnosis.execTransaction(this, executor, signatures, value, data);
         }
     }
 }
 
 contract Executor {
-    GnosisSafe gnosis;
-    SignatureChecker checker;
+    // these storage values are unknown but fixed
+    uint256 signatures;
     uint256 value;
-    uint256 data;
     uint256 count;
-    function execute(uint256 nonce, uint256 signatures)
+    function execute(
+        GnosisSafe gnosis, SignatureChecker checker, // to avoid multiple instances
+        uint256 data
+    )
         public
         returns (bool success)
     {
         if (count < 3) {
             count++;
-            success = gnosis.execTransaction(nonce, checker, this, signatures, value, data);
+            success = gnosis.execTransaction(checker, this, signatures, value, data);
         }
     }
 }
